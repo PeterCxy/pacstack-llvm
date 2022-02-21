@@ -60,7 +60,7 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
 
     // See if frame has code to run (has personality routine).
     unw_proc_info_t frameInfo;
-    unw_word_t sp;
+    unw_word_t sp, cr, lr, pc;
     if (__unw_get_proc_info(cursor, &frameInfo) != UNW_ESUCCESS) {
       _LIBUNWIND_TRACE_UNWINDING(
           "unwind_phase1(ex_ojb=%p): __unw_get_proc_info "
@@ -68,6 +68,30 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
           (void *)exception_object);
       return _URC_FATAL_PHASE1_ERROR;
     }
+
+    printf("--- frame ---\n");
+    __unw_get_reg(cursor, UNW_REG_SP, &sp);
+    __unw_get_reg(cursor, UNW_ARM64_X28, &cr);
+    __unw_get_reg(cursor, UNW_REG_IP, &pc);
+    printf("sp = %p, pc = %p, cr = %p\n", sp, pc, cr);
+
+    unw_word_t out;
+    __asm volatile (
+      "mov x16, %[cr]\n\t"
+      //"ldr x17, [%[sp], #16]\n\t"
+      "ldr %[cr], [%[sp]], #32\n\t"
+      "mov x15, xzr\n\t"
+      "pacia x15, %[cr]\n\t"
+      "eor x16, x16, x15\n\t"
+      "mov x15, xzr\n\t"
+      "autia x16, %[cr]\n\t"
+      "mov %[out], x16\n\t"
+      : [out] "=&r" (out)
+      : [sp] "r" (sp),
+        [cr] "r" (cr)
+      : "x15", "x16", "x17"
+    );
+    printf("lr_authed = %p\n", out);
 
     // When tracing, print state information.
     if (_LIBUNWIND_TRACING_UNWINDING) {

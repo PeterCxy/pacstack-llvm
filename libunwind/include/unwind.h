@@ -40,9 +40,10 @@ typedef enum {
   _URC_HANDLER_FOUND = 6,
   _URC_INSTALL_CONTEXT = 7,
   _URC_CONTINUE_UNWIND = 8,
-#if defined(_LIBUNWIND_ARM_EHABI)
+// TODO: Guard this using a PACStack flag
+//#if defined(_LIBUNWIND_ARM_EHABI)
   _URC_FAILURE = 9
-#endif
+//#endif
 } _Unwind_Reason_Code;
 
 typedef enum {

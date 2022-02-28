@@ -34,13 +34,86 @@
 
 #ifndef _LIBUNWIND_SUPPORT_SEH_UNWIND
 
+struct unw_pacstack_info {
+  unw_word_t sp;
+  unw_word_t cr;
+  unw_word_t pc;
+};
+
+static void
+unwind_pacstack_init(struct unw_pacstack_info *info) {
+  info->sp = 0;
+  info->cr = 0;
+  info->pc = 0;
+}
+
+// info stores necessary information from the __last__ verified frame
+static _Unwind_Reason_Code
+unwind_pacstack_verify_frame(unw_cursor_t *cursor, struct unw_pacstack_info *info) {
+  unw_word_t sp, cr, pc;
+  __unw_get_reg(cursor, UNW_REG_SP, &sp);
+  __unw_get_reg(cursor, UNW_REG_IP, &pc);
+  // TODO: define a constant for CR register and guard it behind a PACStack enablement macro
+  __unw_get_reg(cursor, UNW_ARM64_X28, &cr);
+
+  printf("--- frame ---\n");
+  printf("sp = %p, pc = %p, cr = %p\n", sp, pc, cr);
+
+  // We can only verify frames other than the first one (the deepest one)
+  // TODO: We should actually be able to verify the first one using
+  //       the context saved in whichever function that called the unwinder
+  //       (e.g. _Unwind_RaiseException) assuming libunwind is also built
+  //       with PACStack enabled.
+  if (info->sp != 0) {
+    /*
+     * Because we are now one level shallower in the call stack,
+     * we now have the CR value one step up in the chain
+     * so we can now verify if our current pc is a valid
+     * return address for the previous (deeper) stack frame
+     */
+    unw_word_t lr_expected;
+    __asm volatile (
+      "mov x16, %[cr_last]\n\t"
+      "mov x15, xzr\n\t"
+      "pacia x15, %[cr]\n\t"
+      "eor x16, x16, x15\n\t"
+      "mov x15, xzr\n\t"
+      "autia x16, %[cr]\n\t"
+      "mov %[out], x16\n\t"
+       : [out] "=&r" (lr_expected)
+       : [cr_last] "r" (info->cr),
+         [cr] "r" (cr)
+       : "x15", "x16"
+    );
+    printf("lr_expected = %p\n", lr_expected);
+
+    if (lr_expected != pc) {
+      printf("The previous frame is not supposed to return to address %p\n", pc);
+      printf("Control-flow attack detected during stack unwinding. Aborting.\n");
+      return _URC_FAILURE;
+    } else {
+      printf("pc of current frame verified.\n");
+    }
+  }
+
+  // Save information for the next verification call
+  info->cr = cr;
+  info->pc = pc;
+  info->sp = sp;
+
+  return _URC_NO_REASON;
+}
+
 static _Unwind_Reason_Code
 unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *exception_object) {
   __unw_init_local(cursor, uc);
 
+  // PACStack
+  struct unw_pacstack_info pac_info;
+  unwind_pacstack_init(&pac_info);
+
   // Walk each frame looking for a place to stop.
   bool handlerNotFound = true;
-  unw_word_t sp_last = 0, cr_last = 0, pc_last = 0;
   while (handlerNotFound) {
     // Ask libunwind to get next frame (skip over first which is
     // _Unwind_RaiseException).
@@ -59,6 +132,11 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
       return _URC_FATAL_PHASE1_ERROR;
     }
 
+    // PACStack
+    if (unwind_pacstack_verify_frame(cursor, &pac_info) != _URC_NO_REASON) {
+      return _URC_FATAL_PHASE1_ERROR;
+    }
+
     // See if frame has code to run (has personality routine).
     unw_proc_info_t frameInfo;
     unw_word_t sp;
@@ -69,49 +147,6 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
           (void *)exception_object);
       return _URC_FATAL_PHASE1_ERROR;
     }
-
-    if (sp_last != 0) {
-        printf("--- frame ---\n");
-        printf("sp = %p, pc = %p, cr = %p\n", sp_last, pc_last, cr_last);
-
-        unw_word_t cr, pc;
-        __unw_get_reg(cursor, UNW_ARM64_X28, &cr);
-        __unw_get_reg(cursor, UNW_REG_IP, &pc);
-
-        /*
-         * Because we are now one level shallower in the call stack,
-         * we now have the CR value one step up in the chain
-         * so we can now verify if our current pc is a valid
-         * return address for the previous (deeper) stack frame
-         */
-        unw_word_t lr_expected;
-        __asm volatile (
-          "mov x16, %[cr_last]\n\t"
-          "mov x15, xzr\n\t"
-          "pacia x15, %[cr]\n\t"
-          "eor x16, x16, x15\n\t"
-          "mov x15, xzr\n\t"
-          "autia x16, %[cr]\n\t"
-          "mov %[out], x16\n\t"
-          : [out] "=&r" (lr_expected)
-          : [cr_last] "r" (cr_last),
-            [cr] "r" (cr)
-          : "x15", "x16"
-        );
-        printf("lr_expected = %p\n", lr_expected);
-
-        if (lr_expected != pc) {
-            printf("Control-flow attack detected during stack unwinding. Aborting.\n");
-            exit(-1);
-        } else {
-            printf("Return address integrity verified.\n");
-        }
-    }
-
-    // Save SP, CR, PC for verification in the next frame
-    __unw_get_reg(cursor, UNW_REG_SP, &sp_last);
-    __unw_get_reg(cursor, UNW_ARM64_X28, &cr_last);
-    __unw_get_reg(cursor, UNW_REG_IP, &pc_last);
 
     // When tracing, print state information.
     if (_LIBUNWIND_TRACING_UNWINDING) {

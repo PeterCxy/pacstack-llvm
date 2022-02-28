@@ -70,7 +70,6 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
       return _URC_FATAL_PHASE1_ERROR;
     }
 
-    // TODO: Do the same for the very last frame in the stack
     if (sp_last != 0) {
         printf("--- frame ---\n");
         printf("sp = %p, pc = %p, cr = %p\n", sp_last, pc_last, cr_last);
@@ -84,9 +83,6 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
          * we now have the CR value one step up in the chain
          * so we can now verify if our current pc is a valid
          * return address for the previous (deeper) stack frame
-         *
-         * TODO: why does this work? CR should be callee-saved,
-         * but apparently libunwind can fetch its value just fine
          */
         unw_word_t lr_expected;
         __asm volatile (
@@ -135,8 +131,6 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
           frameInfo.lsda, frameInfo.handler);
     }
 
-    // TODO: We probably shouldn't call the personality routines until the PC is verified.
-    // TODO: If we do the above, then remember to handle the very last frame correctly.
     // If there is a personality routine, ask it if it will want to stop at
     // this frame.
     if (frameInfo.handler != 0) {

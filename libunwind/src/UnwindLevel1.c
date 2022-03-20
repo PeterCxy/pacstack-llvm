@@ -34,13 +34,7 @@
 
 #ifndef _LIBUNWIND_SUPPORT_SEH_UNWIND
 
-struct unw_pacstack_info {
-  unw_word_t sp;
-  unw_word_t cr;
-  unw_word_t pc;
-};
-
-static void
+void
 unwind_pacstack_init(struct unw_pacstack_info *info) {
   info->sp = 0;
   info->cr = 0;
@@ -48,7 +42,7 @@ unwind_pacstack_init(struct unw_pacstack_info *info) {
 }
 
 // info stores necessary information from the __last__ verified frame
-static _Unwind_Reason_Code
+_Unwind_Reason_Code
 unwind_pacstack_verify_frame(unw_cursor_t *cursor, struct unw_pacstack_info *info) {
   unw_word_t sp, cr, pc;
   __unw_get_reg(cursor, UNW_REG_SP, &sp);

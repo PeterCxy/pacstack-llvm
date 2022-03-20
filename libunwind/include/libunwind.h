@@ -18,6 +18,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include <unwind.h>
+
 #ifdef __APPLE__
   #if __clang__
     #if __has_include(<Availability.h>)
@@ -108,6 +110,15 @@ extern int unw_get_fpreg(unw_cursor_t *, unw_regnum_t, unw_fpreg_t *) LIBUNWIND_
 extern int unw_set_reg(unw_cursor_t *, unw_regnum_t, unw_word_t) LIBUNWIND_AVAIL;
 extern int unw_set_fpreg(unw_cursor_t *, unw_regnum_t, unw_fpreg_t)  LIBUNWIND_AVAIL;
 extern int unw_resume(unw_cursor_t *) LIBUNWIND_AVAIL;
+
+struct unw_pacstack_info {
+  unw_word_t sp;
+  unw_word_t cr;
+  unw_word_t pc;
+};
+
+extern void unwind_pacstack_init(struct unw_pacstack_info *info);
+extern _Unwind_Reason_Code unwind_pacstack_verify_frame(unw_cursor_t *cursor, struct unw_pacstack_info *info);
 
 #ifdef __arm__
 /* Save VFP registers in FSTMX format (instead of FSTMD). */
